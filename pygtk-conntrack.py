@@ -22,12 +22,9 @@ import os
 import sys
 import time
 
-from threading import Thread
-
 from xml.etree.ElementTree import XML
 
 import gtk
-gtk.gdk.threads_init()
 import gobject
 
 from Conntrack import ConnectionManager
@@ -56,30 +53,68 @@ class MainWindow(gtk.Window):
             'source port', 'destination port', 'packets in', 'packets out',
             'bytes in', 'bytes out')
 
-        self.model = gtk.ListStore( *([gobject.TYPE_STRING] * len(columns)) )
+        self.model = gtk.ListStore(
+            gobject.TYPE_UINT64,
+            gobject.TYPE_STRING,
+            gobject.TYPE_STRING,
+            gobject.TYPE_STRING,
+            gobject.TYPE_STRING,
+            gobject.TYPE_INT,
+            gobject.TYPE_INT,
+            gobject.TYPE_UINT64,
+            gobject.TYPE_UINT64,
+            gobject.TYPE_UINT64,
+            gobject.TYPE_UINT64
+        )
 
         self.list.set_model(self.model)
 
         for i in range(len(columns)):
-            self.list.append_column(gtk.TreeViewColumn(columns[i].capitalize(),
-                gtk.CellRendererText(), text=i))
+            column = gtk.TreeViewColumn(columns[i].capitalize(),
+                gtk.CellRendererText(), text=i)
+            column.set_sort_column_id(i)
+            self.list.append_column(column)
 
-        self.add(self.list)
+        sw = gtk.ScrolledWindow()
+        sw.set_shadow_type(gtk.SHADOW_ETCHED_IN)
+        sw.set_policy(gtk.POLICY_NEVER, gtk.POLICY_AUTOMATIC)
+        sw.add(self.list)
+
+        self.add(sw)
         
         self.running = True
+        self.update_interval = 1000
+        self.messages = {}
 
         def refresh_list():
 
-            while self.running:
-                self.model.clear()
+            try:
                 messages = self.cm.list()
-                print messages
-                for m in map(XML, messages):
-                    self.model.append(parse_message(m))
-                time.sleep(5)
+            except:
+                messages = []
+
+            messages = map(parse_message, messages)
+            new_ids = [ i[0] for i in messages ]
+
+            for i in self.messages.keys():
+                if i not in new_ids:
+                    self.model.remove(self.messages.pop(i))
+            
+            old_ids = self.messages.keys()
+            for m in messages:
+                if m[0] not in old_ids:
+                    self.messages[m[0]] = self.model.append(m)
+                else:
+                    fuck = []
+                    for i in zip(range(len(m)), m):
+                        fuck.extend(i)
+                    self.model.set(self.messages[m[0]], *fuck)
+
+            return True
         
-        self.refresh_thread = Thread(target=refresh_list)
-        self.refresh_thread.start()
+        refresh_list()
+        gtk.timeout_id = gobject.timeout_add(self.update_interval,
+                                                refresh_list)
         
         self.show_all()
 
@@ -88,11 +123,12 @@ class MainWindow(gtk.Window):
         pass
 
     def destroy(self, w):
-        self.running = False
-        self.refresh_thread.join()
         gtk.main_quit()
+        sys.exit(0)
 
 def parse_message(e):
+    
+    e = XML(e)
 
     indep = filter(lambda x: x.get('direction') == "independent", e.getiterator('meta'))[0]
     orig = filter(lambda x: x.get('direction') == "original", e.getiterator('meta'))[0]
@@ -119,13 +155,12 @@ def parse_message(e):
     bytes_in = orig.getiterator('counters')[0].getiterator('bytes')[0].text
     bytes_out = reply.getiterator('counters')[0].getiterator('bytes')[0].text
 
-    return (id, state, proto, src, dst, sport, dport, packets_in, packets_out,
-        bytes_in, bytes_out)
+    return (int(id), state, proto, src, dst, int(sport), int(dport),
+        int(packets_in), int(packets_out), int(bytes_in), int(bytes_out))
 
 
 def main():
     w = MainWindow()
-    print 'MainWindow initialized!'
     gtk.main()
 
 if __name__ == "__main__":
