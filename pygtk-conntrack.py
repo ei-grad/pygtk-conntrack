@@ -49,9 +49,9 @@ class MainWindow(gtk.Window):
         self.list = gtk.TreeView()
         self.list.connect('button-press-event', self._button_press)
 
-        columns = ('id', 'state', 'protocol', 'source', 'destination',
-            'source port', 'destination port', 'packets in', 'packets out',
-            'bytes in', 'bytes out')
+        self.columns = ('id', 'state', 'proto3', 'proto4', 'src', 'dst',
+            'sport', 'dport', 'packets_in', 'packets_out',
+            'bytes_in', 'bytes_out')
 
         self.model = gtk.ListStore(
             gobject.TYPE_UINT64,
@@ -59,8 +59,9 @@ class MainWindow(gtk.Window):
             gobject.TYPE_STRING,
             gobject.TYPE_STRING,
             gobject.TYPE_STRING,
-            gobject.TYPE_INT,
-            gobject.TYPE_INT,
+            gobject.TYPE_STRING,
+            gobject.TYPE_UINT64,
+            gobject.TYPE_UINT64,
             gobject.TYPE_UINT64,
             gobject.TYPE_UINT64,
             gobject.TYPE_UINT64,
@@ -69,8 +70,8 @@ class MainWindow(gtk.Window):
 
         self.list.set_model(self.model)
 
-        for i in range(len(columns)):
-            column = gtk.TreeViewColumn(columns[i].capitalize(),
+        for i, title in enumerate(self.columns):
+            column = gtk.TreeViewColumn(title.capitalize(),
                 gtk.CellRendererText(), text=i)
             column.set_sort_column_id(i)
             self.list.append_column(column)
@@ -83,32 +84,46 @@ class MainWindow(gtk.Window):
         self.add(sw)
         
         self.running = True
-        self.update_interval = 1000
+        self.update_interval = 5000
         self.messages = {}
 
         def refresh_list():
 
             try:
-                messages = self.cm.list()
+                mess_list = self.cm.list()
             except:
-                messages = []
-
-            messages = map(parse_message, messages)
-            new_ids = [ i[0] for i in messages ]
-
-            for i in self.messages.keys():
-                if i not in new_ids:
-                    self.model.remove(self.messages.pop(i))
+                mess_list = []
             
-            old_ids = self.messages.keys()
-            for m in messages:
-                if m[0] not in old_ids:
-                    self.messages[m[0]] = self.model.append(m)
-                else:
-                    fuck = []
-                    for i in zip(range(len(m)), m):
-                        fuck.extend(i)
-                    self.model.set(self.messages[m[0]], *fuck)
+            new_messages = {}
+            for i in mess_list:
+                m = parse_message(i)
+                if 'proto4' not in m:
+                    m['proto4'] = ""
+                if 'state' not in m:
+                    m['state'] = "UNKNOWN"
+                if 'sport' not in m:
+                    m['sport'] = 0
+                if 'dport' not in m:
+                    m['dport'] = 0
+                new_messages[m['id']] = m
+
+            old_ids = set(self.messages.keys())
+            new_ids = set(new_messages.keys())
+
+            for id in old_ids.difference(new_ids):
+                self.model.remove(self.messages.pop(id))
+            
+            for id in new_ids.difference(old_ids):
+                msg = new_messages[id]
+                mesg = [ msg[col] for col in self.columns ]
+                self.messages[id] = self.model.append(mesg)
+            
+            for id in new_ids.intersection(old_ids):
+                m = new_messages[id]
+                mesg = []
+                for i in 'state', 'bytes_in', 'bytes_out', 'packets_in', 'packets_out':
+                    mesg.extend((self.columns.index(i), m[i]))
+                self.model.set(self.messages[id], *mesg)
 
             return True
         
@@ -130,34 +145,37 @@ def parse_message(e):
     
     e = XML(e)
 
-    indep = filter(lambda x: x.get('direction') == "independent", e.getiterator('meta'))[0]
-    orig = filter(lambda x: x.get('direction') == "original", e.getiterator('meta'))[0]
-    reply = filter(lambda x: x.get('direction') == "reply", e.getiterator('meta'))[0]
-    
-    id = indep.getiterator('id')[0].text
-    try:
-        state = indep.getiterator('state')[0].text
-    except:
-        state = 'UNKNOWN'
-    proto = orig.getiterator('layer4')[0].get('protoname')
-    src = orig.getiterator('layer3')[0].getiterator('src')[0].text
-    dst = orig.getiterator('layer3')[0].getiterator('dst')[0].text
+    ret = {}
 
-    if proto == 'udp' or proto == 'tcp':
-        sport = orig.getiterator('layer4')[0].getiterator('sport')[0].text
-        dport = orig.getiterator('layer4')[0].getiterator('dport')[0].text
-    else:
-        sport = 0
-        dport = 0
+    for i in e:
+        direction = i.get('direction')
+        if direction == 'original':
+            for j in i:
+                if j.tag == 'layer4':
+                    ret['proto4'] = j.get('protoname', '')
+                    for k in j:
+                        if k.tag == 'sport': ret['sport'] = int(k.text)
+                        elif k.tag == 'dport': ret['dport'] = int(k.text)
+                elif j.tag == 'layer3':
+                    ret['proto3'] = j.get('protoname')
+                    for k in j:
+                        if k.tag == 'src': ret['src'] = k.text
+                        elif k.tag == 'dst': ret['dst'] = k.text
+                elif j.tag == 'counters':
+                    for k in j:
+                        if k.tag == 'packets': ret['packets_out'] = int(k.text)
+                        elif k.tag == 'bytes': ret['bytes_out'] = int(k.text)
+        elif direction == 'reply':
+            for j in i:
+                for k in j:
+                    if k.tag == 'packets': ret['packets_in'] = int(k.text)
+                    elif k.tag == 'bytes': ret['bytes_in'] = int(k.text)
+        elif direction == 'independent':
+            for j in i:
+                if j.tag == 'id': ret['id'] = int(j.text)
+                elif j.tag == 'state': ret['state'] = j.text
 
-    packets_in = orig.getiterator('counters')[0].getiterator('packets')[0].text
-    packets_out = reply.getiterator('counters')[0].getiterator('packets')[0].text
-    bytes_in = orig.getiterator('counters')[0].getiterator('bytes')[0].text
-    bytes_out = reply.getiterator('counters')[0].getiterator('bytes')[0].text
-
-    return (int(id), state, proto, src, dst, int(sport), int(dport),
-        int(packets_in), int(packets_out), int(bytes_in), int(bytes_out))
-
+    return ret
 
 def main():
     w = MainWindow()
