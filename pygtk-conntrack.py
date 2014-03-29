@@ -18,9 +18,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-import os
 import sys
-import time
 
 from xml.etree.ElementTree import XML
 
@@ -34,7 +32,7 @@ class MainWindow(gtk.Window):
     """GTK based Conntrack network connection manager."""
 
     def __init__(self, parent=None):
-       
+
         gtk.Window.__init__(self)
         try:
             self.set_screen(parent.get_screen())
@@ -82,7 +80,7 @@ class MainWindow(gtk.Window):
         sw.add(self.list)
 
         self.add(sw)
-        
+
         self.running = True
         self.update_interval = 5000
         self.messages = {}
@@ -93,7 +91,7 @@ class MainWindow(gtk.Window):
                 mess_list = self.cm.list()
             except:
                 mess_list = []
-            
+
             new_messages = {}
             for i in mess_list:
                 m = parse_message(i)
@@ -112,12 +110,12 @@ class MainWindow(gtk.Window):
 
             for id in old_ids.difference(new_ids):
                 self.model.remove(self.messages.pop(id))
-            
+
             for id in new_ids.difference(old_ids):
                 msg = new_messages[id]
                 mesg = [ msg[col] for col in self.columns ]
                 self.messages[id] = self.model.append(mesg)
-            
+
             for id in new_ids.intersection(old_ids):
                 m = new_messages[id]
                 mesg = []
@@ -126,11 +124,11 @@ class MainWindow(gtk.Window):
                 self.model.set(self.messages[id], *mesg)
 
             return True
-        
+
         refresh_list()
         gtk.timeout_id = gobject.timeout_add(self.update_interval,
                                                 refresh_list)
-        
+
         self.show_all()
 
 
@@ -142,7 +140,7 @@ class MainWindow(gtk.Window):
         sys.exit(0)
 
 def parse_message(e):
-    
+
     e = XML(e)
 
     ret = {}
@@ -180,7 +178,7 @@ def parse_message(e):
 def main():
     w = MainWindow()
     gtk.main()
+    del w
 
 if __name__ == "__main__":
     main()
-
