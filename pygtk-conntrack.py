@@ -113,14 +113,14 @@ class MainWindow(gtk.Window):
 
             for id in new_ids.difference(old_ids):
                 msg = new_messages[id]
-                mesg = [ msg[col] for col in self.columns ]
+                mesg = [ msg.get(col, 0) for col in self.columns ]
                 self.messages[id] = self.model.append(mesg)
 
             for id in new_ids.intersection(old_ids):
                 m = new_messages[id]
                 mesg = []
                 for i in 'state', 'bytes_in', 'bytes_out', 'packets_in', 'packets_out':
-                    mesg.extend((self.columns.index(i), m[i]))
+                    mesg.extend((self.columns.index(i), m.get(i, 0)))
                 self.model.set(self.messages[id], *mesg)
 
             return True
